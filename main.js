@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
-const csv = require('csv-parser');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -40,26 +39,29 @@ ipcMain.handle('merge-csv', async (event, filePaths) => {
 
   for (const filePath of filePaths) {
     const readStream = fs.createReadStream(filePath);
+    let buffer = '';
     let isFirstLine = true;
 
     await new Promise((resolve, reject) => {
       readStream
-        .pipe(csv())
-        .on('headers', (headers) => {
-          if (isFirstFile) {
-            writeStream.write(headers.join(',') + '\n');
-          }
-        })
-        .on('data', (row) => {
-          const rowData = Object.values(row).join(',');
-          if (isFirstFile || !isFirstLine) {
-            if (rowData.trim()) { // Check if the row is not empty
-              writeStream.write(rowData + '\n');
+        .on('data', (chunk) => {
+          buffer += chunk.toString();
+          let lines = buffer.split('\n');
+          buffer = lines.pop(); // Keep the last partial line in the buffer
+
+          lines.forEach((line, index) => {
+            if (isFirstFile || (!isFirstLine && index > 0)) {
+              if (line.trim()) { // Check if the line is not empty
+                writeStream.write(line + '\n');
+              }
             }
-          }
-          isFirstLine = false;
+            isFirstLine = false;
+          });
         })
         .on('end', () => {
+          if (buffer.trim()) { // Write the last line if it's not empty
+            writeStream.write(buffer + '\n');
+          }
           isFirstFile = false;
           resolve();
         })
